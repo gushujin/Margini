@@ -1,104 +1,110 @@
 import streamlit as st
 
 # Configurazione Pagina
-st.set_page_config(page_title="Margine Reale", layout="centered")
+st.set_page_config(page_title="Calcolatrice Business", layout="centered")
 
-# CSS per Font Grandi e Mobile UI
-st.markdown("""
-<style>
-    .stNumberInput input { font-size: 20px !important; height: 50px !important; }
-    .stTextInput input { font-size: 20px !important; height: 50px !important; }
-    .main { background-color: #f8f9fa; }
-    .metric-box { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 10px; }
-    .res-val { font-size: 24px; font-weight: bold; color: #d32f2f; }
-</style>
-""", unsafe_allow_html=True)
-
-# Funzioni di calcolo
-def parse_cascata(testo, prezzo_lordo):
-    if not testo or prezzo_lordo == 0: return prezzo_lordo
+# Funzione per gestire sconti multipli (es. 40+10+5)
+def parse_multiple_discounts(discount_str):
+    if not discount_str:
+        return 0.0
     try:
-        sconti = [float(x.strip().replace(',', '.')) for x in testo.split('+') if x.strip()]
-        netto = prezzo_lordo
-        for s in sconti:
-            netto *= (1 - s/100)
-        return round(netto, 2)
-    except:
-        return prezzo_lordo
+        # Pulisce la stringa e divide per il simbolo +
+        parts = [float(p.strip()) for p in str(discount_str).split('+') if p.strip()]
+        total_complement = 1.0
+        for p in parts:
+            total_complement *= (1 - p / 100)
+        return (1 - total_complement) * 100
+    except ValueError:
+        return 0.0
 
-def calc_sconto_equiv(lordo, netto):
-    if lordo == 0: return 0
-    return round((1 - netto/lordo) * 100, 2)
+# Funzione per mostrare lo sconto calcolato sotto l'input
+def display_discount_info(value):
+    if value > 0:
+        st.caption(f"Sconto reale composto: **{value:.2f}%**")
 
-# --- INIZIO APP ---
-st.title("📊 Calcolatore Margine Reale")
-
-# Reset Function
-def reset():
-    for key in st.session_state.keys():
-        del st.session_state[key]
-    st.rerun()
-
-if st.button("🔄 RESET CAMPI"):
-    reset()
-
-st.divider()
-
-# --- SEZIONE ACQUISTO ---
-st.subheader("🛒 ACQUISTO")
-col1, col2 = st.columns([1, 1])
-with col1:
-    acq_lordo = st.number_input("Prezzo Listino ACQ (€)", min_value=0.0, step=0.01, key="al")
-with col2:
-    acq_sconti = st.text_input("Sconti (es. 40+10)", key="as")
-
-acq_netto = parse_cascata(acq_sconti, acq_lordo)
-sc_acq_tot = calc_sconto_equiv(acq_lordo, acq_netto)
-st.info(f"**Netto Acquisto: {acq_netto} €** (Sconto tot: {sc_acq_tot}%)")
-
-st.divider()
-
-# --- SEZIONE VENDITA ---
-st.subheader("🏷️ VENDITA")
-col3, col4 = st.columns([1, 1])
-with col3:
-    ven_lordo = st.number_input("Prezzo Listino VEN (€)", min_value=0.0, step=0.01, key="vl")
-with col4:
-    ven_sconti = st.text_input("Sconti (es. 5+2)", key="vs")
-
-ven_netto = parse_cascata(ven_sconti, ven_lordo)
-sc_ven_tot = calc_sconto_equiv(ven_lordo, ven_netto)
-st.info(f"**Netto Vendita: {ven_netto} €** (Sconto tot: {sc_ven_tot}%)")
-
-st.divider()
-
-# --- RISULTATI E MARGINE ---
-if ven_netto > 0:
-    margine_reale = round(((ven_netto - acq_netto) / ven_netto) * 100, 2)
-    
-    st.subheader("📈 RISULTATO")
-    
-    # Colore in base al margine
-    color = "green" if margine_reale >= 10 else "red"
-    st.markdown(f"<div style='font-size:30px; color:{color}; font-weight:bold;'>Margine: {margine_reale}%</div>", unsafe_allow_html=True)
-
-    if margine_reale < 10:
-        # Calcolo Risorsa
-        acq_max_per_10pct = ven_netto * 0.90
-        risorsa = acq_max_per_10pct - acq_netto
-        
-        st.error(f"⚠️ MARGINE INSUFFICIENTE (Sotto 10%)")
-        st.markdown(f"""
-        <div class='metric-box'>
-            <p>Per raggiungere il margine del 10%:</p>
-            <p>Il prezzo d'acquisto netto deve scendere di:</p>
-            <div class='res-val'>{round(risorsa, 2)} €</div>
-            <p><small>(Acquisto netto obiettivo: {round(acq_max_per_10pct, 2)} €)</small></p>
-        </div>
-        """, unsafe_allow_html=True)
+# Funzione Alert Margine
+def check_margin_alert(margin_val, purchase_price):
+    if margin_val < 10.0:
+        st.error(f"⚠️ Margine insufficiente: {margin_val:.2f}%")
+        # Formula: Prezzo Vendita Target = Acquisto / 0.90
+        target_price = purchase_price / 0.90
+        gap = target_price - (purchase_price / (1 - margin_val/100) if margin_val != 100 else 0)
+        needed_euro = target_price - (purchase_price / (1 - margin_val/100)) # Calcolo semplificato per l'utente
+        # Valore da aggiungere al prezzo di vendita attuale per arrivare al 10% di margine
+        current_sales = purchase_price / (1 - margin_val/100) if margin_val < 100 else 0
+        diff = target_price - current_sales
+        st.info(f"Per raggiungere il 10% di margine, aggiungi **{diff:.2f}€** al prezzo di vendita attuale.")
     else:
-        st.success("✅ Margine Target Rispettato")
+        st.success(f"Margine ottimale: {margin_val:.2f}%")
 
-st.divider()
-if st.button("🔄 RESET CAMPI (Fine pagina)"):
-    reset()
+# UI - Header
+st.title("📊 Calcolatrice Business")
+st.markdown("Strumento professionale per il calcolo di margini e ricarichi.")
+
+# Creazione Tab per organizzare le funzioni
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Margine (Prezzi/Sconti)", 
+    "Prezzo Vendita Target", 
+    "Calcolo Sconto",
+    "Info Formule"
+])
+
+# --- TAB 1: MARGINE ---
+with tab1:
+    mode = st.radio("Metodo di calcolo:", ["Valori in €", "Sconti %"])
+    
+    if mode == "Valori in €":
+        col1, col2 = st.columns(2)
+        acq = col1.number_input("Prezzo Acquisto (€)", min_value=0.01, step=1.0, value=50.0)
+        vend = col2.number_input("Prezzo Vendita (€)", min_value=0.01, step=1.0, value=60.0)
+        
+        margine = ((vend - acq) / vend) * 100
+        st.metric("Margine Finale", f"{margine:.2f}%")
+        check_margin_alert(margine, acq)
+
+    else:
+        col1, col2 = st.columns(2)
+        sconto_acq_raw = col1.text_input("Sconto Acquisto (es. 45 o 40+10)", "45")
+        sconto_ven_raw = col2.text_input("Sconto Vendita (es. 30 o 20+5)", "30")
+        
+        s_acq = parse_multiple_discounts(sconto_acq_raw)
+        display_discount_info(s_acq)
+        s_ven = parse_multiple_discounts(sconto_ven_raw)
+        display_discount_info(s_ven)
+        
+        # Calcolo margine puro basato su sconti (ipotizzando listino 100)
+        prezzo_acq_finto = 100 * (1 - s_acq / 100)
+        prezzo_ven_finto = 100 * (1 - s_ven / 100)
+        margine = ((prezzo_ven_finto - prezzo_acq_finto) / prezzo_ven_finto) * 100
+        
+        st.metric("Margine Finale", f"{margine:.2f}%")
+        # Per l'alert usiamo un prezzo di acquisto base di 50€ come esempio se il listino è vuoto
+        check_margin_alert(margine, 50.0)
+
+# --- TAB 2: PREZZO VENDITA TARGET ---
+with tab2:
+    col1, col2 = st.columns(2)
+    p_acq = col1.number_input("Prezzo Acquisto (€)", min_value=0.01, step=1.0, value=50.0, key="target_acq")
+    m_desiderato = col2.number_input("Margine Desiderato (%)", min_value=0.0, max_value=99.0, step=1.0, value=15.0)
+    
+    target_v = p_acq / (1 - (m_desiderato / 100))
+    st.subheader(f"Prezzo di Vendita: **{target_v:.2f}€**")
+
+# --- TAB 3: CALCOLO SCONTO ---
+with tab3:
+    col1, col2 = st.columns(2)
+    listino = col1.number_input("Prezzo Listino (€)", min_value=0.01, step=1.0, value=100.0)
+    netto = col2.number_input("Prezzo Netto (€)", min_value=0.01, step=1.0, value=60.0)
+    
+    sconto_applicato = (1 - (netto / listino)) * 100
+    st.metric("Sconto Applicato", f"{sconto_applicato:.2f}%")
+
+# --- TAB 4: INFO ---
+with tab4:
+    st.markdown("""
+    **Formule utilizzate:**
+    *   **Margine:** `(Vendita - Acquisto) / Vendita`
+    *   **Sconto Composto:** `1 - [(1-s1) * (1-s2) * ...]`
+    *   **Prezzo Target:** `Acquisto / (1 - Margine Desiderato)`
+    *   **Alert 10%:** Calcolato come differenza tra il prezzo attuale e `Acquisto / 0.90`.
+    """)

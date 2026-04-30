@@ -1,33 +1,109 @@
-Ruolo: Agisci come uno sviluppatore Python senior esperto in Web App con Streamlit.
+import streamlit as st
 
-Obiettivo: Crea una Web App responsive chiamata "Calcolatrice Business Commerciale". L'app deve essere pronta per il deploy su GitHub e Streamlit Cloud.
+# Configurazione della pagina per essere responsive
+st.set_page_config(page_title="Calcolatrice Business", layout="centered")
 
-Specifiche Tecniche:
+# Funzione per calcolare sconti multipli (es. 40+10+5)
+def parse_multi_discount(discount_str):
+    if not discount_str:
+        return 0.0
+    try:
+        # Divide la stringa per '+' e calcola il valore composto
+        parts = [float(p.strip().replace(',', '.')) for p in str(discount_str).split('+') if p.strip()]
+        total_complement = 1.0
+        for p in parts:
+            total_complement *= (1 - p / 100)
+        return (1 - total_complement) * 100
+    except Exception:
+        return None
 
-Framework: Streamlit.
+# Funzione per calcolare la risorsa necessaria per raggiungere il 10% di margine
+def calculate_resource_gap(purchase_price, current_sale_price):
+    # Per avere il 10% di margine: (Vendita - X) / Vendita = 0.10
+    # X (nuovo acquisto) = Vendita * 0.90
+    target_purchase = current_sale_price * 0.90
+    gap = purchase_price - target_purchase
+    return gap if gap > 0 else 0.0
 
-Stato Iniziale: Tutti i campi di input devono essere vuoti o resettati ad ogni apertura/refresh dell'app.
+# Reset automatico dei campi: inizializziamo lo stato della sessione
+if 'reset' not in st.session_state:
+    st.session_state.reset = False
 
-Interfaccia: Pulita, professionale e mobile-friendly.
+st.title("📊 Calcolatrice Business Commerciale")
+st.markdown("---")
 
-Gestione Sconti Multipli: Implementa una funzione che accetti stringhe come "40+10+5". Il programma deve calcolare lo sconto reale composto (es: 40+10+5 = 48.7%) e visualizzare il risultato immediatamente sotto il campo di input.
+# Organizzazione in Tab
+tab1, tab2, tab3 = st.tabs(["💰 Calcolo Margini", "🎯 Target Vendita", "🏷️ Calcolo Sconto Netto"])
 
-Logiche di Calcolo (Riferimento foglio MARGINE_RICARICO (OR) di calcolo-margini_2.xlsx):
+# --- TAB 1: CALCOLO MARGINI ---
+with tab1:
+    st.subheader("Calcola il Margine Operativo")
+    mode = st.radio("Metodo di calcolo:", ["Prezzi (€)", "Sconti (%)"], horizontal=True)
+    
+    if mode == "Prezzi (€)":
+        col1, col2 = st.columns(2)
+        p_acq = col1.number_input("Prezzo Acquisto (€)", min_value=0.0, step=0.01, value=0.0)
+        p_vend = col2.number_input("Prezzo Vendita (€)", min_value=0.0, step=0.01, value=0.0)
+        
+        if p_vend > 0:
+            margine = ((p_vend - p_acq) / p_vend) * 100
+            st.metric("Margine", f"{margine:.2f}%")
+            
+            if margine < 10.0:
+                gap = calculate_resource_gap(p_acq, p_vend)
+                st.error(f"⚠️ Alert: Margine inferiore al 10%!")
+                st.info(f"Risorsa necessaria (abbassare prezzo acquisto): **{gap:.2f}€**")
+            else:
+                st.success("Margine di sicurezza garantito (>10%).")
 
-Margine da Prezzi: Input "Prezzo Acquisto" e "Prezzo Vendita". Calcola il Margine % = ((Vendita - Acquisto) / Vendita) * 100.
+    else:
+        col1, col2 = st.columns(2)
+        s_acq_raw = col1.text_input("Sconto Acquisto % (es: 45 o 40+10)", key="sacq")
+        s_ven_raw = col2.text_input("Sconto Vendita % (es: 30)", key="sven")
+        
+        val_acq = parse_multi_discount(s_acq_raw)
+        val_ven = parse_multi_discount(s_ven_raw)
+        
+        if val_acq is not None: col1.caption(f"Sconto reale Acq: **{val_acq:.2f}%**")
+        if val_ven is not None: col2.caption(f"Sconto reale Ven: **{val_ven:.2f}%**")
+        
+        if val_acq is not None and val_ven is not None:
+            # Calcolo margine puro su basi percentuali (Listino ipotetico = 100)
+            net_acq = 100 * (1 - val_acq / 100)
+            net_ven = 100 * (1 - val_ven / 100)
+            margine_sconto = ((net_ven - net_acq) / net_ven) * 100
+            st.metric("Margine da Sconti", f"{margine_sconto:.2f}%")
+            
+            if margine_sconto < 10.0:
+                # Esempio su base 100 per l'abbattimento acquisto
+                gap_perc = calculate_resource_gap(net_acq, net_ven)
+                st.error("⚠️ Alert: Margine da sconti troppo basso!")
+                st.info(f"Valore da abbattere sul netto acquisto (base 100€): **{gap_perc:.2f}€**")
 
-Margine da Sconti: Input "Sconto Acquisto %" e "Sconto Vendita %". Calcola il margine lavorando solo sulle percentuali (anche se il listino è vuoto).
+# --- TAB 2: PREZZO DI VENDITA TARGET ---
+with tab2:
+    st.subheader("Calcola Prezzo di Vendita Necessario")
+    colA, colB = st.columns(2)
+    acq_base = colA.number_input("Costo Acquisto (€)", min_value=0.0, step=0.01, key="acq_target")
+    margine_req = colB.number_input("Margine Desiderato (%)", min_value=0.0, max_value=99.0, step=0.1, key="m_req")
+    
+    if margine_req < 100:
+        prezzo_target = acq_base / (1 - (margine_req / 100))
+        st.subheader(f"Prezzo di vendita consigliato: **{prezzo_target:.2f}€**")
 
-Alert Protezione Margine (10%): Se il margine calcolato (in qualsiasi modalità) è inferiore al 10%, mostra un Alert rosso. Calcola automaticamente quanto valore in € è necessario sottrarre al prezzo d'acquisto attuale per ottenere esattamente un margine del 10% (es: acquisto 50€, vendita 53€ -> Margine 5.66% -> Alert -> Valore per abbassare l'acquisto = 2.3€).
+# --- TAB 3: CALCOLO SCONTO NETTO ---
+with tab3:
+    st.subheader("Calcola Sconto applicato")
+    colL, colN = st.columns(2)
+    listino = colL.number_input("Prezzo di Listino (€)", min_value=0.0, step=0.01)
+    netto = colN.number_input("Prezzo Netto (€)", min_value=0.0, step=0.01)
+    
+    if listino > 0:
+        sconto_effettivo = (1 - (netto / listino)) * 100
+        st.metric("Sconto Applicato", f"{sconto_effettivo:.2f}%")
 
-Prezzo di Vendita Target: Input "Prezzo Acquisto" e "Margine Desiderato %". Calcola Prezzo Vendita = Acquisto / (1 - (Margine/100)).
-
-Calcolo Sconto Netto: Input "Listino" e "Prezzo Netto". Calcola la percentuale di sconto applicata.
-
-Output Richiesto:
-
-Codice completo per app.py.
-
-Contenuto per il file requirements.txt (es: streamlit).
-
-Usa st.tabs o st.sidebar per organizzare le diverse sezioni di calcolo.
+# Footer per info
+st.sidebar.title("Opzioni")
+if st.sidebar.button("Reset Campi"):
+    st.rerun()
+st.sidebar.info("Calcolatrice basata sul foglio MARGINE_RICARICO (OR).")
